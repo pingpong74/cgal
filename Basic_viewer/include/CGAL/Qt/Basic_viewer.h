@@ -3,8 +3,8 @@
 //
 // This file is part of CGAL (www.cgal.org).
 //
-// $URL$
-// $Id$
+// $URL: https://github.com/CGAL/cgal/blob/v6.1.1/Basic_viewer/include/CGAL/Qt/Basic_viewer.h $
+// $Id: include/CGAL/Qt/Basic_viewer.h 08b27d3db14 $
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //
 //
@@ -38,6 +38,9 @@
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
+
+// for instancing functions
+#include <QOpenGLExtraFunctions>
 
 #ifdef __GNUC__
 #if __GNUC__ >= 9
@@ -322,33 +325,27 @@ public:
     QVector3D color;
     attrib_buffers(this);
 
-    if(m_draw_vertices)
+    if(m_draw_vertices) // this uses the new instanced vertices
     {
-      if (m_draw_sphere_vertex && m_geometry_feature_enabled)
-      {
-        auto renderer = [this, &color, &clipPlane, &plane_point](float rendering_mode) {
-          rendering_program_sphere.bind();
-          if (m_use_default_color)
-          {
-            auto vertex_color = m_scene.get_default_color_point();
-            color = QVector3D((double)vertex_color.red()/(double)255,
-                              (double)vertex_color.green()/(double)255,
-                              (double)vertex_color.blue()/(double)255);
-            rendering_program_sphere.setUniformValue("u_DefaultColor", color);
-            rendering_program_sphere.setUniformValue("u_UseDefaultColor", static_cast<GLint>(1));
-          }
-          else
-          {
-            rendering_program_sphere.setUniformValue("u_UseDefaultColor", static_cast<GLint>(0));
-          }
-          rendering_program_sphere.setUniformValue("u_Radius", static_cast<GLfloat>(sceneRadius()*m_size_vertices*0.002));
-          rendering_program_sphere.setUniformValue("u_ClipPlane",  clipPlane);
-          rendering_program_sphere.setUniformValue("u_PointPlane", plane_point);
-          rendering_program_sphere.setUniformValue("u_RenderingMode", rendering_mode);
+        rendering_program_instanced_vertex.bind();
 
-          vao[VAO_POINTS].bind();
-          glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(m_scene.number_of_elements(GS::POS_POINTS)));
-        };
+        if (m_use_default_color)
+        {
+          auto vertex_color = m_scene.get_default_color_point();
+          color = QVector3D((double)vertex_color.red()/(double)255, (double)vertex_color.green()/(double)255, (double)vertex_color.blue()/(double)255);
+          rendering_program_instanced_vertex.setUniformValue("u_DefaultColor", color);
+          rendering_program_instanced_vertex.setUniformValue("u_UseDefaultColor", static_cast<GLint>(1));
+        }
+        else
+        {
+          rendering_program_instanced_vertex.setUniformValue("u_UseDefaultColor", static_cast<GLint>(0));
+        }
+
+        rendering_program_instanced_vertex.setUniformValue("u_Radius", static_cast<GLfloat>(sceneRadius() * m_size_vertices * 0.0002));
+        rendering_program_instanced_vertex.setUniformValue("u_ClipPlane",  clipPlane);
+        rendering_program_instanced_vertex.setUniformValue("u_PointPlane", plane_point);
+
+        float rendering_mode;
 
         enum {
           DRAW_ALL = -1, // draw all
@@ -358,61 +355,21 @@ public:
 
         if (m_use_clipping_plane == CLIPPING_PLANE_SOLID_HALF_ONLY)
         {
-          renderer(DRAW_INSIDE_ONLY);
+          rendering_mode = DRAW_INSIDE_ONLY;
         }
         else
         {
-          renderer(DRAW_ALL);
+          rendering_mode = DRAW_ALL;
         }
 
-        rendering_program_sphere.release();
-      }
-      else
-      {
-        auto renderer = [this, &color, &clipPlane, &plane_point](float rendering_mode) {
-          rendering_program_p_l.bind();
+        rendering_program_instanced_vertex.setUniformValue("u_RenderingMode", rendering_mode);
 
-          if (m_use_default_color)
-          {
-            auto vertex_color = m_scene.get_default_color_point();
-            color = QVector3D((double)vertex_color.red()/(double)255,
-                              (double)vertex_color.green()/(double)255,
-                              (double)vertex_color.blue()/(double)255);
-            rendering_program_p_l.setUniformValue("u_DefaultColor", color);
-            rendering_program_p_l.setUniformValue("u_UseDefaultColor", static_cast<GLint>(1));
-          }
-          else
-          {
-            rendering_program_p_l.setUniformValue("u_UseDefaultColor", static_cast<GLint>(0));
-          }
-          rendering_program_p_l.setUniformValue("u_PointSize",  GLfloat(m_size_vertices));
-          rendering_program_p_l.setUniformValue("u_IsOrthographic", GLint(is_two_dimensional()));
+        vao[VAO_INSTANCED_POINTS].bind();
 
-          rendering_program_p_l.setUniformValue("u_ClipPlane", clipPlane);
-          rendering_program_p_l.setUniformValue("u_PointPlane", plane_point);
-          rendering_program_p_l.setUniformValue("u_RenderingMode", rendering_mode);
+        QOpenGLExtraFunctions*f=QOpenGLContext::currentContext()->extraFunctions();
+        f->glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(m_scene.number_of_elements(GS::POS_POINTS)));
 
-          vao[VAO_POINTS].bind();
-          glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(m_scene.number_of_elements(GS::POS_POINTS)));
-        };
-
-        enum {
-          DRAW_ALL = -1, // draw all
-          DRAW_INSIDE_ONLY, // draw only the part inside the clipping plane
-          DRAW_OUTSIDE_ONLY // draw only the part outside the clipping plane
-        };
-
-        if (m_use_clipping_plane == CLIPPING_PLANE_SOLID_HALF_ONLY)
-        {
-          renderer(DRAW_INSIDE_ONLY);
-        }
-        else
-        {
-          renderer(DRAW_ALL);
-        }
-
-        rendering_program_p_l.release();
-      }
+        rendering_program_instanced_vertex.release();
     }
 
     if(m_draw_edges && !m_draw_mesh_triangles)
@@ -844,6 +801,7 @@ protected:
     rendering_program_cylinder.removeAllShaders();
     rendering_program_normal.removeAllShaders();
     rendering_program_triangle.removeAllShaders();
+    rendering_program_instanced_vertex.removeAllShaders();
 
     // Create the buffers
     for (unsigned int i=0; i<NB_GL_BUFFERS; ++i)
@@ -864,7 +822,39 @@ protected:
     //     ? VERTEX_SOURCE_P_L
     //     : VERTEX_SOURCE_P_L_COMP;
 
-    const char* source_ = isOpenGL_4_3()
+    const char* source_;
+
+    // the new instanced vertex shader
+    {
+        source_ = VERTEX_SOURCE_SHAPE_INSTANCE;
+        QOpenGLShader *vertex_shader_instanced = new QOpenGLShader(QOpenGLShader::Vertex);
+        if(!vertex_shader_instanced->compileSourceCode(source_))
+        {
+            std::cerr<<"Compiling vertex source FAILED"<<std::endl;
+        }
+
+        source_ = FRAGMENT_SOURCE_INSTANCE;
+        QOpenGLShader *fragment_shader_instanced = new QOpenGLShader(QOpenGLShader::Fragment);
+        if(!fragment_shader_instanced->compileSourceCode(source_))
+        {
+            std::cerr<<"Compiling fragment source FAILED"<<std::endl;
+        }
+
+        if(!rendering_program_instanced_vertex.addShader(vertex_shader_instanced))
+        {
+            std::cerr<<"adding vertex shader FAILED"<<std::endl;
+        }
+        if(!rendering_program_instanced_vertex.addShader(fragment_shader_instanced))
+        {
+            std::cerr<<"adding fragment shader FAILED"<<std::endl;
+        }
+        if(!rendering_program_instanced_vertex.link())
+        {
+            std::cerr<<"linking Program FAILED"<<std::endl;
+        }
+    }
+
+    source_ = isOpenGL_4_3()
                           ? VERTEX_SOURCE_P_L
                           : VERTEX_SOURCE_P_L_COMP;
 
@@ -1123,12 +1113,44 @@ protected:
 
   void initialize_buffers()
   {
-    set_camera_mode();
     rendering_program_p_l.bind();
+
+    set_camera_mode();
+
+    rendering_program_p_l.release();
 
     unsigned int bufn = 0;
     std::vector<float> positions, normals, colors;
+
+    positions = m_scene.get_array_of_index(GS::POS_POINTS);
+    colors = m_scene.get_array_of_index(GS::COLOR_POINTS);
+
+    // the changes required in buffer for isntancing to work
+    rendering_program_instanced_vertex.bind();
+    vao[VAO_INSTANCED_POINTS].bind();
+
+    QOpenGLExtraFunctions *f = QOpenGLContext::currentContext()->extraFunctions();
+
+    CGAL_assertion(bufn<NB_GL_BUFFERS);
+    buffers[bufn].bind();
+    buffers[bufn].allocate(positions.data(), static_cast<int>(positions.size()*sizeof(float)));
+    rendering_program_instanced_vertex.enableAttributeArray("a_Pos");
+    rendering_program_instanced_vertex.setAttributeBuffer("a_Pos", GL_FLOAT, 0, 3);
+    f->glVertexAttribDivisor(rendering_program_instanced_vertex.attributeLocation("a_Pos"), 1);
+
+    ++bufn;
+    CGAL_assertion(bufn<NB_GL_BUFFERS);
+    buffers[bufn].bind();
+    buffers[bufn].allocate(colors.data(), static_cast<int>(colors.size()*sizeof(float)));
+    rendering_program_instanced_vertex.enableAttributeArray("a_Color");
+    rendering_program_instanced_vertex.setAttributeBuffer("a_Color", GL_FLOAT, 0, 3);
+    f->glVertexAttribDivisor(rendering_program_instanced_vertex.attributeLocation("a_Color"), 1);
+
+    rendering_program_instanced_vertex.release();
+
     // 1) POINT SHADER
+    ++bufn;
+    rendering_program_p_l.bind();
 
     vao[VAO_POINTS].bind();
     positions = m_scene.get_array_of_index(GS::POS_POINTS);
@@ -1265,6 +1287,7 @@ protected:
   {
     QMatrix4x4 mvpMatrix;
     QMatrix4x4 mvMatrix;
+    QMatrix4x4 proj;
     double mat[16];
     viewer->camera()->getModelViewProjectionMatrix(mat);
     for(unsigned int i=0; i < 16; i++)
@@ -1275,6 +1298,11 @@ protected:
     for(unsigned int i=0; i < 16; i++)
     {
       mvMatrix.data()[i] = (float)mat[i];
+    }
+    viewer->camera()->getProjectionMatrix(mat);
+    for(unsigned int i=0; i < 16; i++)
+    {
+      proj.data()[i] = (float)mat[i];
     }
     // define material
     QVector4D diffuse( 0.9f,
@@ -1324,6 +1352,17 @@ protected:
     mvpLocation = rendering_program_p_l.uniformLocation("u_Mvp");
     rendering_program_p_l.setUniformValue(mvpLocation, mvpMatrix);
     rendering_program_p_l.release();
+
+    //instanced vertices features
+    rendering_program_instanced_vertex.bind();
+
+    mvLocation = rendering_program_instanced_vertex.uniformLocation("u_Mv");
+    rendering_program_instanced_vertex.setUniformValue(mvLocation, mvMatrix);
+
+    int projLocation = rendering_program_instanced_vertex.uniformLocation("u_Proj");
+    rendering_program_instanced_vertex.setUniformValue(projLocation, proj);
+
+    rendering_program_instanced_vertex.release();
 
     // cylinder edge feature
     rendering_program_cylinder.bind();
@@ -1913,7 +1952,7 @@ protected:
   CGAL::qglviewer::WorldConstraint constraint;
 
   static const unsigned int NB_GL_BUFFERS=(GS::END_POS-GS::BEGIN_POS)+
-    (GS::END_COLOR-GS::BEGIN_COLOR)+3; // +2 for normals (mono and color), +1 for clipping plane
+    (GS::END_COLOR-GS::BEGIN_COLOR)+3 + 2; // +2 for normals (mono and color), +1 for clipping plane, +2 fpr instanced
 
   QOpenGLBuffer buffers[NB_GL_BUFFERS]; // +1 for the buffer of clipping plane
 
@@ -1926,7 +1965,9 @@ protected:
     VAO_LINES,
     VAO_FACES,
     VAO_CLIPPING_PLANE,
-    NB_VAO_BUFFERS
+    VAO_INSTANCED_POINTS,
+    NB_VAO_BUFFERS,
+
   };
   QOpenGLVertexArrayObject vao[NB_VAO_BUFFERS];
 
@@ -1938,6 +1979,10 @@ protected:
   QOpenGLShaderProgram rendering_program_cylinder;
   QOpenGLShaderProgram rendering_program_normal;
   QOpenGLShaderProgram rendering_program_triangle;
+
+  // instanced rendering program
+  QOpenGLShaderProgram rendering_program_instanced_vertex;
+
 
   // variables for clipping plane
   bool clipping_plane_rendering = true; // will be toggled when alt+c is pressed, which is used for indicating whether or not to render the clipping plane ;

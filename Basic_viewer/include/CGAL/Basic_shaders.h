@@ -893,6 +893,94 @@ void main(void)
 )DELIM";
 */
 
+// Instancing shders here
+
+const char VERTEX_SOURCE_SHAPE_INSTANCE[]=R"DELIM(
+    #version 150
+    in highp vec3 a_Pos;
+    in mediump vec3 a_Color;
+
+    out mediump vec4 v_Color;
+    // remeber, these are in camera coordinates!! :)(
+    out highp vec3 v_CenterView;
+    out highp vec3 v_RayDir;
+    // normal world coordinates
+    out highp vec3 world_pos;
+
+    uniform highp   mat4  u_Mv;
+    uniform highp   mat4  u_Proj;
+
+    uniform mediump float u_Radius;
+    uniform mediump vec3  u_DefaultColor;
+    uniform bool  u_UseDefaultColor;
+
+    const vec2 QUAD[6] = vec2[6](
+        vec2(-1,-1), vec2( 1,-1), vec2( 1, 1),
+        vec2(-1,-1), vec2( 1, 1), vec2(-1, 1)
+    );
+
+    void main(void)
+    {
+        v_Color = u_UseDefaultColor ? vec4(u_DefaultColor, 1.0) : vec4(a_Color, 1.0);
+
+        world_pos = a_Pos;
+
+        vec3 centerView = vec3(u_Mv * vec4(a_Pos, 1.0));
+        v_CenterView = centerView;
+
+        vec3 right = vec3(1.0, 0.0, 0.0);
+        vec3 up    = vec3(0.0, 1.0, 0.0);
+
+        vec2 corner = QUAD[gl_VertexID % 6];
+        vec3 cornerView = centerView + right * corner.x * u_Radius + up * corner.y * u_Radius;
+
+        v_RayDir = cornerView;
+        gl_Position = u_Proj * vec4(cornerView, 1.0);
+    }
+)DELIM";
+
+const char FRAGMENT_SOURCE_INSTANCE[] = R"DELIM(
+    #version 150
+    in mediump vec4 v_Color;
+    // in camera coords
+    in highp   vec3 v_CenterView;
+    in highp   vec3 v_RayDir;
+    // in world coords
+    in highp vec3 world_pos;
+
+    out mediump vec4 out_Color;
+
+    uniform highp   mat4  u_Proj;
+    uniform mediump float u_Radius;
+    uniform highp   vec4  u_ClipPlane;
+    uniform highp   vec4  u_PointPlane;
+    uniform mediump float u_RenderingMode;
+
+    void main(void)
+    {
+        // a simple ray sphere intersection test
+        vec3  rayDir = normalize(v_RayDir);
+        float b = dot(rayDir, v_CenterView);
+        float c = dot(v_CenterView, v_CenterView) - u_Radius * u_Radius;
+        float disc = b * b - c;
+        if (disc < 0.0) discard;
+
+        float t = b - sqrt(disc);
+        vec3  hitPos = rayDir * t;
+        vec3  normal = (hitPos - v_CenterView) / u_Radius;
+
+        // Transform hit point back to local space for clip-plane test
+        float onPlane = sign(dot(world_pos - u_PointPlane.xyz, u_ClipPlane.xyz));
+        if (u_RenderingMode == (onPlane + 1.0) / 2.0) discard;
+
+        // the correct depth value
+        vec4 clipPos = u_Proj * vec4(hitPos, 1.0);
+        gl_FragDepth = (clipPos.z / clipPos.w) * 0.5 + 0.5;
+
+        out_Color = v_Color;
+    }
+)DELIM";
+
 }
 
 #endif // CGAL_BASIC_SHADERS_H
