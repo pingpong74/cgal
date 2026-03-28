@@ -711,62 +711,92 @@ void main(void)
 
 const char GEOMETRY_SOURCE_LINE_WIDTH[]=R"DELIM(
 #version 150
-layout (lines) in;
-layout (triangle_strip, max_vertices = 4) out;
+layout(lines) in;
+// 4 (rectangle) + 2 * SEGS*3 (hemispheres) = 4 + 2*8*3 = 52
+layout(triangle_strip, max_vertices = 52) out;
 
 in mediump vec4 g_Color[];
-
 in VS_OUT {
-  mediump float pointSize;
-  mediump vec4 color;
-  highp   vec4 ls_fP;
+    mediump float pointSize;
+    mediump vec4 color;
+    highp vec4 ls_fP;
 } gs_in[];
 
 out mediump vec4 fColor;
-out highp   vec4 ls_fP;
+out highp vec4 ls_fP;
 
 uniform mediump float u_PointSize;
-uniform mediump vec2  u_Viewport;
-uniform highp   mat4  u_Mvp;
+uniform mediump vec2 u_Viewport;
+uniform highp mat4 u_Mvp;
+
+const float PI = 3.14159265358979323846;
+const int RES = 8; // triangles per semicircle cap — keep 4 + SEGS*6 ≤ max_vertices
 
 vec2 ToScreenSpace(vec4 vertex)
 {
-  return vec2(vertex.xy / vertex.w) * u_Viewport;
+    return vec2(vertex.xy / vertex.w) * u_Viewport;
 }
 
 vec4 ToWorldSpace(vec4 vertex)
 {
-  return vec4((vertex.xy * vertex.w) / u_Viewport, vertex.zw);
+    return vec4((vertex.xy * vertex.w) / u_Viewport, vertex.zw);
+}
+
+void EmitAt(vec2 screenPos, vec2 zw, vec4 color, mat4 invMvp)
+{
+    gl_Position = ToWorldSpace(vec4(screenPos, zw));
+    fColor = color;
+    ls_fP = invMvp * gl_Position;
+    EmitVertex();
 }
 
 void main(void)
 {
-  vec2 p0 = ToScreenSpace(gl_in[0].gl_Position);
-  vec2 p1 = ToScreenSpace(gl_in[1].gl_Position);
-  vec2 v0 = normalize(p1 - p0);
-  vec2 n0 = vec2(-v0.y, v0.x) * u_PointSize * 0.5;
+    vec2 p0 = ToScreenSpace(gl_in[0].gl_Position);
+    vec2 p1 = ToScreenSpace(gl_in[1].gl_Position);
 
-  // line start
-  gl_Position = ToWorldSpace(vec4(p0 - n0 * gs_in[0].pointSize, gl_in[0].gl_Position.zw));
-  fColor = gs_in[0].color;
-  ls_fP = inverse(u_Mvp) * gl_Position;
-  EmitVertex();
+    vec2 v0 = normalize(p1 - p0);
 
-  gl_Position = ToWorldSpace(vec4(p0 + n0 * gs_in[0].pointSize, gl_in[0].gl_Position.zw));
-  fColor = gs_in[0].color;
-  ls_fP = inverse(u_Mvp) * gl_Position;
-  EmitVertex();
+    // This insets the circles centers.
+    // this reduces the size of rectangle to match the orignal size
+    float r0 = u_PointSize * 0.5 * gs_in[0].pointSize;
+    float r1 = u_PointSize * 0.5 * gs_in[1].pointSize;
 
-  // line end
-  gl_Position = ToWorldSpace(vec4(p1 - n0 * gs_in[1].pointSize, gl_in[1].gl_Position.zw));
-  fColor = gs_in[1].color;
-  ls_fP = inverse(u_Mvp) * gl_Position;
-  EmitVertex();
+    mat4 inv = inverse(u_Mvp);
 
-  gl_Position = ToWorldSpace(vec4(p1 + n0 * gs_in[1].pointSize, gl_in[1].gl_Position.zw));
-  fColor = gs_in[1].color;
-  ls_fP = inverse(u_Mvp) * gl_Position;
-  EmitVertex();
+    // Emit rectangular body
+    vec2 n0 = vec2(-v0.y, v0.x);
+    EmitAt(p0 - n0 * r0, gl_in[0].gl_Position.zw, gs_in[0].color, inv);
+    EmitAt(p0 + n0 * r0, gl_in[0].gl_Position.zw, gs_in[0].color, inv);
+    EmitAt(p1 - n0 * r1, gl_in[1].gl_Position.zw, gs_in[1].color, inv);
+    EmitAt(p1 + n0 * r1, gl_in[1].gl_Position.zw, gs_in[1].color, inv);
+    EndPrimitive();
+
+    // this angle tells orientation of line
+    // basically, we can use it to get from where to draw the hemisphere
+    float ang = atan(v0.y, v0.x);
+
+    // hemisphere going from ang + PI/2 to ang + 3 * PI/2
+    for (int i = 0; i < RES; i++)
+    {
+        float a0 = ang + PI * (0.5 + float(i) / float(RES));
+        float a1 = ang + PI * (0.5 + float(i + 1) / float(RES));
+        EmitAt(p0, gl_in[0].gl_Position.zw, gs_in[0].color, inv);
+        EmitAt(p0 + r0 * vec2(cos(a0), sin(a0)), gl_in[0].gl_Position.zw, gs_in[0].color, inv);
+        EmitAt(p0 + r0 * vec2(cos(a1), sin(a1)), gl_in[0].gl_Position.zw, gs_in[0].color, inv);
+        EndPrimitive();
+    }
+
+    // hemisphere going from ang - PI/2 to ang + PI/2
+    for (int i = 0; i < RES; i++)
+    {
+        float a0 = ang + PI * (-0.5 + float(i) / float(RES));
+        float a1 = ang + PI * (-0.5 + float(i + 1) / float(RES));
+        EmitAt(p1, gl_in[1].gl_Position.zw, gs_in[1].color, inv);
+        EmitAt(p1 + r1 * vec2(cos(a0), sin(a0)), gl_in[1].gl_Position.zw, gs_in[1].color, inv);
+        EmitAt(p1 + r1 * vec2(cos(a1), sin(a1)), gl_in[1].gl_Position.zw, gs_in[1].color, inv);
+        EndPrimitive();
+    }
 }
 )DELIM";
 
