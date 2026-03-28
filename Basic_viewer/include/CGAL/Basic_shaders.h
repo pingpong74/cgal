@@ -967,9 +967,10 @@ const char FRAGMENT_SOURCE_INSTANCE[] = R"DELIM(
 
         float t = b - sqrt(disc);
         vec3  hitPos = rayDir * t;
+        // for future use
         vec3  normal = (hitPos - v_CenterView) / u_Radius;
 
-        // Transform hit point back to local space for clip-plane test
+        // clip-plane test
         float onPlane = sign(dot(world_pos - u_PointPlane.xyz, u_ClipPlane.xyz));
         if (u_RenderingMode == (onPlane + 1.0) / 2.0) discard;
 
